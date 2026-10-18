@@ -14,7 +14,7 @@ import time
 
 from pysat.solvers import Solver
 
-from graphs import alpha, alpha_bruteforce, find_indep, to_g6, triangle_free
+from graphs import alpha, alpha_bruteforce, dom_violations, find_indep, to_g6, triangle_free
 from symenc import SymEncoding
 
 
@@ -26,16 +26,17 @@ def write_cnf(path, nvars, clauses):
 
 
 def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbreak=True,
-        solver_name="cadical153", outdir=None, quiet=False, max_seconds=None, min_edges=0, cube=None, cube_id=None, dom=0):
+        solver_name="cadical153", outdir=None, quiet=False, max_seconds=None, min_edges=0, cube=None, cube_id=None, dom=0, nonindep=None, lazydom=0):
     if cube is not None:
         symbreak = "fixed"
-    enc = SymEncoding(p, k, f, lo, hi, symbreak, min_edges, dom)
+    enc = SymEncoding(p, k, f, lo, hi, symbreak, min_edges, dom, t, nonindep)
     if cube is not None:
         enc.fix_moving_part(cube)
-    tag = f"p{p}_k{k}_f{f}_t{t}_lo{lo}_hi{hi}" + ("" if symbreak else "_nosb") + (f"_e{min_edges}" if min_edges else "") + (f"_cube{cube_id}" if cube is not None else "") + (f"_dom{dom}" if dom else "")
+    tag = f"p{p}_k{k}_f{f}_t{t}_lo{lo}_hi{hi}" + ("" if symbreak else "_nosb") + (f"_e{min_edges}" if min_edges else "") + (f"_cube{cube_id}" if cube is not None else "") + (f"_dom{dom}" if dom else "") + (f"_ni{nonindep}" if nonindep is not None else "") + (f"_ld{lazydom}" if lazydom else "")
     outdir = outdir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs", tag)
     os.makedirs(outdir, exist_ok=True)
     cuts, seen, cutsets = [], set(), []
+    domsets, domseen = [], set()
     t0 = time.time()
     status = "LIMIT"
     witness = None
@@ -62,6 +63,22 @@ def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbre
                         new += 1
                 if sd == 0 and new == 0:
                     break
+            if new and lazydom:
+                # Ramsey-aware lazy cuts: independent s-set S with |N(S)| < need
+                for sz in range(2, lazydom + 1):
+                    need = enc.n - sz - enc.M_UPPER[t - 1 - sz]
+                    if need <= 0:
+                        continue
+                    for S in dom_violations(adj, sz, need, maxout=40):
+                        key = enc.orbit_key(S)
+                        if key in domseen:
+                            continue
+                        domseen.add(key)
+                        start = len(enc.clauses)
+                        enc.add_domination_set(list(key), need)
+                        for cl in enc.clauses[start:]:
+                            s.add_clause(cl)
+                        domsets.append((need, list(key)))
             if new == 0:
                 # no independent t-set found by the complete search
                 assert triangle_free(adj)
@@ -73,8 +90,8 @@ def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbre
             if not quiet and it % 200 == 0:
                 print(f"[{tag}] iter {it} cuts {len(cuts)} {time.time()-t0:.1f}s", flush=True)
     elapsed = time.time() - t0
-    summary = dict(p=p, k=k, f=f, n=enc.n, t=t, lo=lo, hi=hi, symbreak=symbreak, min_edges=min_edges, dom=dom, status=status,
-                   iterations=it, cuts=len(cuts), edge_vars=enc.nedge_vars,
+    summary = dict(p=p, k=k, f=f, n=enc.n, t=t, lo=lo, hi=hi, symbreak=symbreak, min_edges=min_edges, dom=dom, nonindep=nonindep, status=status,
+                   iterations=it, cuts=len(cuts), lazydom=lazydom, domcuts=len(domsets), edge_vars=enc.nedge_vars,
                    total_vars=enc.top, base_clauses=len(enc.clauses),
                    seconds=round(elapsed, 2), solver=solver_name)
     if status == "WITNESS":
@@ -88,6 +105,9 @@ def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbre
         with open(os.path.join(outdir, "cutsets.txt"), "w") as fh:
             for S in cutsets:
                 fh.write(" ".join(map(str, S)) + "\n")
+        with open(os.path.join(outdir, "domsets.txt"), "w") as fh:
+            for need, S in domsets:
+                fh.write(str(need) + " " + " ".join(map(str, S)) + "\n")
     with open(os.path.join(outdir, "summary.json"), "w") as fh:
         json.dump(summary, fh, indent=1)
     if not quiet:
@@ -110,6 +130,8 @@ if __name__ == "__main__":
     ap.add_argument("--no-symbreak", action="store_true")
     ap.add_argument("--min-edges", type=int, default=0)
     ap.add_argument("--dom", type=int, default=0)
+    ap.add_argument("--nonindep", type=int, default=None)
+    ap.add_argument("--lazydom", type=int, default=0)
     a = ap.parse_args()
     run(a.p, a.k, a.f, a.t, a.lo, a.hi, a.max_iter, a.per_model, symbreak=not a.no_symbreak,
-        solver_name=a.solver, max_seconds=a.max_seconds, min_edges=a.min_edges, dom=a.dom)
+        solver_name=a.solver, max_seconds=a.max_seconds, min_edges=a.min_edges, dom=a.dom, nonindep=a.nonindep, lazydom=a.lazydom)

@@ -140,6 +140,17 @@ class Audit:
                     self.cls.append([-s[i][j], s[i - 1][j], s[i - 1][j - 1]])
         return s[m - 1][K - 1]
 
+    def domination_set(self, S, need):
+        ys = []
+        for w in range(self.n):
+            if w in S:
+                continue
+            y = self.new()
+            self.cls.append([-y] + [self.x(u, w) for u in S])
+            ys.append(y)
+        r = self.atleast(ys, need)
+        self.cls.append([self.x(u, v) for u, v in combinations(S, 2)] + [r])
+
     def domination(self, size, need):
         """Independent size-set S => |N(S)| >= need (one per sigma-orbit)."""
         done = set()
@@ -244,12 +255,24 @@ class Audit:
         return cnt
 
 
-def run(rundir, p, k, f, t=10, lo=4, hi=9, symbreak=True, min_edges=0, cube=None, dom=0):
+def run(rundir, p, k, f, t=10, lo=4, hi=9, symbreak=True, min_edges=0, cube=None, dom=0, nonindep=None):
     A = Audit(p, k, f, lo, hi)
     A.triangles()
     A.degrees()
     if min_edges:
         A.atleast_edges(min_edges)
+    if nonindep is not None:
+        # exactly `nonindep` cycles contain an internal edge: count with the
+        # sequential counters (at most) on z and on not-z
+        zs = []
+        for c in range(k):
+            w = sorted({A.x(A.f + c * p, A.f + c * p + d) for d in range(1, p)})
+            z = A.new()
+            A.cls.append([-z] + w)
+            A.cls += [[-x, z] for x in w]
+            zs.append(z)
+        A.atmost(zs, nonindep)
+        A.atmost([-z for z in zs], k - nonindep)
     if dom >= 2:
         A.domination(2, 40 - 2 - 27)   # R(3,8) = 28
     if dom >= 3:
@@ -259,12 +282,23 @@ def run(rundir, p, k, f, t=10, lo=4, hi=9, symbreak=True, min_edges=0, cube=None
     if symbreak:
         A.lexleader(fixed_only=(symbreak == "fixed"))
     ncut = A.cuts(os.path.join(rundir, "cutsets.txt"), t)
+    ndom = 0
+    dpath = os.path.join(rundir, "domsets.txt")
+    if os.path.exists(dpath):
+        # m(s) = R(3,s+1) - 1 (exact for s <= 8; s = 9 uses R(3,10) <= 41)
+        m_of = {0: 0, 1: 2, 2: 5, 3: 8, 4: 13, 5: 17, 6: 22, 7: 27, 8: 35, 9: 40}
+        for line in open(dpath):
+            need, *S = map(int, line.split())
+            assert len(set(S)) == len(S) and all(0 <= v < A.n for v in S)
+            assert need <= A.n - len(S) - m_of[t - 1 - len(S)], "unjustified domination need"
+            A.domination_set(S, need)
+            ndom += 1
     cnf = os.path.join(rundir, "audit.cnf")
     with open(cnf, "w") as fh:
         fh.write(f"p cnf {A.nv} {len(A.cls)}\n")
         for c in A.cls:
             fh.write(" ".join(map(str, c)) + " 0\n")
-    res = {"vars": A.nv, "clauses": len(A.cls), "cuts": ncut}
+    res = {"vars": A.nv, "clauses": len(A.cls), "cuts": ncut, "domcuts": ndom}
     drat = os.path.join(rundir, "audit.drat")
     r = subprocess.run([CADICAL, "-q", "--no-binary", cnf, drat], capture_output=True, text=True)
     res["cadical_exit"] = r.returncode  # 20 = UNSAT
@@ -287,4 +321,4 @@ if __name__ == "__main__":
     rundir = sys.argv[1]
     s = json.load(open(os.path.join(rundir, "summary.json")))
     print(json.dumps(run(rundir, s["p"], s["k"], s["f"], s["t"], s["lo"], s["hi"],
-                         s.get("symbreak", True), s.get("min_edges", 0), s.get("cube_edges"), s.get("dom", 0))))
+                         s.get("symbreak", True), s.get("min_edges", 0), s.get("cube_edges"), s.get("dom", 0), s.get("nonindep"))))

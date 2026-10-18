@@ -88,3 +88,29 @@ int alpha(int n, const u64 *adj) {
     rec_alpha(0, all);
     return best_;
 }
+
+/* Independent s-sets S with |N(S)| < need (domination violations).
+ * Writes up to maxout vertex masks into out; returns the count. */
+static int s_, need_, dmax_, dn_;
+static u64 *dout_;
+static void rec_dom(u64 cur, int size, u64 cand, u64 nb) {
+    if (dn_ >= dmax_) return;
+    if (size == s_) {
+        if (popc(nb) < need_) dout_[dn_++] = cur;
+        return;
+    }
+    while (cand) {
+        int v = __builtin_ctzll(cand);
+        u64 bit = 1ULL << v;
+        cand &= ~bit;
+        rec_dom(cur | bit, size + 1, cand & ~adj_[v], nb | adj_[v]);
+        if (dn_ >= dmax_) return;
+    }
+}
+
+int find_dom_violations(int n, const u64 *adj, int s, int need, int maxout, u64 *out) {
+    n_ = n; adj_ = adj; s_ = s; need_ = need; dmax_ = maxout; dout_ = out; dn_ = 0;
+    u64 all = (n == 64) ? ~0ULL : ((1ULL << n) - 1);
+    rec_dom(0, 0, all, 0);
+    return dn_;
+}

@@ -16,6 +16,9 @@ def _lib():
     lib.find_indep.restype = ctypes.c_int
     lib.find_indep.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint64), ctypes.c_int,
                                ctypes.c_int, ctypes.POINTER(ctypes.c_uint64), ctypes.c_uint64]
+    lib.find_dom_violations.restype = ctypes.c_int
+    lib.find_dom_violations.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint64), ctypes.c_int,
+                                        ctypes.c_int, ctypes.c_int, ctypes.POINTER(ctypes.c_uint64)]
     lib.alpha.restype = ctypes.c_int
     lib.alpha.argtypes = [ctypes.c_int, ctypes.POINTER(ctypes.c_uint64)]
     return lib
@@ -29,6 +32,15 @@ def find_indep(adj, t, maxout=64, seed=0):
     arr = (ctypes.c_uint64 * n)(*adj)
     out = (ctypes.c_uint64 * maxout)()
     m = LIB.find_indep(n, arr, t, maxout, out, seed)
+    return [[v for v in range(n) if out[i] >> v & 1] for i in range(m)]
+
+
+def dom_violations(adj, s, need, maxout=1000):
+    """Independent s-sets S with |N(S)| < need."""
+    n = len(adj)
+    arr = (ctypes.c_uint64 * n)(*adj)
+    out = (ctypes.c_uint64 * maxout)()
+    m = LIB.find_dom_violations(n, arr, s, need, maxout, out)
     return [[v for v in range(n) if out[i] >> v & 1] for i in range(m)]
 
 

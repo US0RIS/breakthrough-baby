@@ -15,7 +15,11 @@ from itertools import combinations
 
 
 class SymEncoding:
-    def __init__(self, p, k, f, lo=4, hi=9, symbreak=True, min_edges=0, dom=0):
+    # m(s) = max order of a triangle-free graph with alpha <= s, i.e.
+    # R(3, s+1) - 1; exact for s <= 8, and m(9) <= 40 from R(3,10) <= 41.
+    M_UPPER = [0, 2, 5, 8, 13, 17, 22, 27, 35, 40]
+
+    def __init__(self, p, k, f, lo=4, hi=9, symbreak=True, min_edges=0, dom=0, t=10, nonindep=None):
         self.p, self.k, self.f = p, k, f
         self.n = f + k * p
         assert self.n <= 64
@@ -46,10 +50,28 @@ class SymEncoding:
         self.vertex_reps = list(range(f)) + [f + c * p for c in range(k)]
         for v in self.vertex_reps:
             self._degree(v, lo, hi)
-        if dom >= 2:
-            self.add_domination(2, 11)   # R(3,8) = 28
-        if dom >= 3:
-            self.add_domination(3, 15)   # R(3,7) = 23
+        for size in range(2, dom + 1):
+            # (n=40, t=10): size 2 -> 11 via R(3,8)=28; size 3 -> 15 via R(3,7)=23
+            need = self.n - size - self.M_UPPER[t - 1 - size]
+            if need > 0:
+                self.add_domination(size, need)
+        if nonindep is not None:
+            # invariant cube: exactly `nonindep` cycles have an internal edge.
+            # The count is preserved by every normalizer element, so this is
+            # compatible with full lex-leader symmetry breaking.
+            zs = []
+            for c in range(k):
+                w = sorted({self.var(f + c * p, f + c * p + d) for d in range(1, p)})
+                z = self._new()
+                self.clauses.append([-z] + w)
+                for x in w:
+                    self.clauses.append([-x, z])
+                zs.append(z)
+            out = self._totalizer(zs)
+            if nonindep > 0:
+                self.clauses.append([out[nonindep - 1]])
+            if nonindep < k:
+                self.clauses.append([-out[nonindep]])
         if min_edges:
             # global edge count >= min_edges; each orbit variable counts its
             # orbit size. Conditional on the published e(3,10,40) >= 161.
@@ -136,17 +158,24 @@ class SymEncoding:
             if key in seen:
                 continue
             seen.add(key)
-            ys = []
-            for w in range(self.n):
-                if w in S:
-                    continue
-                y = self._new()
-                # y -> w is adjacent to some member of S
-                self.clauses.append([-y] + [self.var(u, w) for u in S])
-                ys.append(y)
-            out = self._totalizer(ys, cap=need)
-            self.clauses.append([self.var(u, v) for u, v in combinations(S, 2)] + [out[need - 1]])
+            self.add_domination_set(S, need)
         self.ndom = len(seen)
+
+    def add_domination_set(self, S, need):
+        """Clauses: S independent -> |N(S)| >= need."""
+        ys = []
+        for w in range(self.n):
+            if w in S:
+                continue
+            y = self._new()
+            # y -> w is adjacent to some member of S
+            self.clauses.append([-y] + [self.var(u, w) for u in S])
+            ys.append(y)
+        out = self._totalizer(ys, cap=need)
+        self.clauses.append([self.var(u, v) for u, v in combinations(S, 2)] + [out[need - 1]])
+
+    def orbit_key(self, S):
+        return min(tuple(sorted(self._orbit_image(S, j))) for j in range(self.p))
 
     def _orbit_image(self, S, j):
         out = []

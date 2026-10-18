@@ -1,0 +1,18 @@
+{
+ "p": 7,
+ "k": 3,
+ "f": 19,
+ "n": 40,
+ "t": 10,
+ "lo": 4,
+ "hi": 9,
+ "symbreak": true,
+ "status": "UNSAT",
+ "iterations": 107,
+ "cuts": 20729,
+ "edge_vars": 258,
+ "total_vars": 12266,
+ "base_clauses": 66313,
+ "seconds": 11.13,
+ "solver": "cadical153"
+}

@@ -35,6 +35,45 @@ size ≥ 7 because 24 > m(6) = 22. Adding α(O) ≥ 3 gives α(G) ≥ 10. ∎
 give an independent 8-set, so α ≥ 10. If O is empty (α = 5), the other ≥ 26 > m(6)
 fixed vertices give 7, so α ≥ 12. ∎
 
+**L5 (orbits with internal edges).** If a σ-orbit O contains an edge yy′, no
+fixed vertex is adjacent to O, since it would be adjacent to both y and y′. Hence
+every vertex of O has all of its ≥ 4 neighbours in M. (For p = 3 an internal
+edge would make O a triangle, so 3-orbits are always independent.)
+
+**Quotient bound (QB).** Let H = G[M]. Write slack(O) = 0 if O has an internal
+edge, and otherwise 9 − deg_H(O), an upper bound on |T_O|. For every set U of
+orbits, the fixed vertices outside ∪_{O∈U} T_O have no neighbour in H[U], so
+
+  α(G) ≥ α(H[U]) + a(f − Σ_{O∈U} slack(O)),
+
+where a(m) = min α over triangle-free graphs on m vertices, i.e. the least s
+with m ≤ m(s). If some U makes the right side ≥ 10, then H is impossible.
+`quotient.py` enumerates every σ-invariant triangle-free H with Δ ≤ 9, up to
+lex-leader symmetry. **Theorem (QB exclusions).** These cycle types admit no H:
+(7,1,33), (7,2,26), (7,3,19), (5,1,35), (5,2,30), (5,3,25), (5,4,20),
+(3,1,37), (3,2,34), (3,3,31), (2,1,38), (2,2,36).
+`audit_quotient.py` re-checks every case with p·k ≤ 15 by brute force with
+no symmetry breaking and shares no code with the enumerator. The other QB
+results are corroborated by SAT. Cycle types written (p, k, f).
+
+**Domination constraints (D2, D3).** If S is an independent set of size s, then
+V ∖ N[S] has α ≤ 9 − s. Hence |N(S)| ≥ 40 − s − m(9 − s): this is ≥ 11 for s = 2
+(R(3,8) = 28) and ≥ 15 for s = 3 (R(3,7) = 23). They are encoded as one
+cardinality constraint per σ-orbit of pairs or triples. This feeds the solver
+Ramsey knowledge it cannot rediscover cheaply from α-cuts. They are tested
+in both directions against direct computation (`test_dom.py`) and re-encoded
+independently in `audit.py`.
+
+**Two kinds of cubes.**
+- *Moving-part cubes* (`cubes.py`) fix G[M] to a lex-leader survivor of QB.
+  They are combined **only** with fixed-point lex-leader constraints, which act
+  on F alone. Mixing in M-symmetries would compare different lex orders and
+  could discard the cube's own representative.
+- *Invariant cubes* (`--nonindep j`) fix "exactly j orbits have an internal
+  edge". That count is preserved by every normalizer element, so they are
+  compatible with full symmetry breaking. They partition the solution set,
+  which was checked exhaustively on small cases.
+
 ## Computational method (status: implemented, tested)
 
 For each cycle type (p, k, f), we use one Boolean variable per σ-orbit of vertex
