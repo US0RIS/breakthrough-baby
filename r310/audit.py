@@ -103,6 +103,63 @@ class Audit:
                 self.cls.append([-s[i - 1][j], s[i][j]])
             self.cls.append([-lits[i], -s[i - 1][K - 1]])
 
+    def atleast_edges(self, K):
+        """Sequential counter, at-least form: >= K edges in the whole graph
+        (every vertex pair counted once, via its orbit variable)."""
+        lits = [self.x(u, v) for u in range(self.n) for v in range(u + 1, self.n)]
+        m = len(lits)
+        s = [[self.new() for _ in range(K)] for _ in range(m)]
+        # s[i][j] -> "at least j+1 of lits[0..i] true"  (only the needed direction)
+        self.cls.append([-s[0][0], lits[0]])
+        for j in range(1, K):
+            self.cls.append([-s[0][j]])
+        for i in range(1, m):
+            for j in range(K):
+                self.cls.append([-s[i][j], s[i - 1][j], lits[i]])
+                if j:
+                    self.cls.append([-s[i][j], s[i - 1][j], s[i - 1][j - 1]])
+        self.cls.append([s[m - 1][K - 1]])
+
+    def sig(self, u):
+        d = self.dec(u)
+        if d[0] == "F":
+            return u
+        return self.f + d[1] * self.p + (d[2] + 1) % self.p
+
+    def atleast(self, lits, K):
+        """Return a literal r with r -> (at least K of lits true)."""
+        m = len(lits)
+        s = [[self.new() for _ in range(K)] for _ in range(m)]
+        self.cls.append([-s[0][0], lits[0]])
+        for j in range(1, K):
+            self.cls.append([-s[0][j]])
+        for i in range(1, m):
+            for j in range(K):
+                self.cls.append([-s[i][j], s[i - 1][j], lits[i]])
+                if j:
+                    self.cls.append([-s[i][j], s[i - 1][j], s[i - 1][j - 1]])
+        return s[m - 1][K - 1]
+
+    def domination(self, size, need):
+        """Independent size-set S => |N(S)| >= need (one per sigma-orbit)."""
+        done = set()
+        for S in combinations(range(self.n), size):
+            if frozenset(S) in done:
+                continue
+            T = list(S)
+            for _ in range(self.p):
+                done.add(frozenset(T))
+                T = [self.sig(v) for v in T]
+            ys = []
+            for w in range(self.n):
+                if w in S:
+                    continue
+                y = self.new()
+                self.cls.append([-y] + [self.x(u, w) for u in S])
+                ys.append(y)
+            r = self.atleast(ys, need)
+            self.cls.append([self.x(u, v) for u, v in combinations(S, 2)] + [r])
+
     def degrees(self):
         for u in range(self.n):
             lits = [self.x(u, v) for v in range(self.n) if v != u]
@@ -133,7 +190,13 @@ class Audit:
             out.append(pi)
         return out
 
-    def lexleader(self):
+    def fix_moving(self, edges):
+        on = {self.x(u, v) for u, v in edges}
+        for u in range(self.f, self.n):
+            for v in range(u + 1, self.n):
+                self.cls.append([self.x(u, v)] if self.x(u, v) in on else [-self.x(u, v)])
+
+    def lexleader(self, fixed_only=False):
         # variable order: the order of first appearance over pairs (u,v), u<v
         order = []
         seen = set()
@@ -144,6 +207,8 @@ class Audit:
                     seen.add(xv); order.append((xv, (u, v)))
         assert [o[0] for o in order] == list(range(1, self.N + 1))
         for pi in self.perms():
+            if fixed_only and any(pi[v] != v for v in range(self.f, self.n)):
+                continue
             # phi(var of {u,v}) = var of {pi u, pi v}; must be well defined
             phi = {}
             for u in range(self.n):
@@ -179,12 +244,20 @@ class Audit:
         return cnt
 
 
-def run(rundir, p, k, f, t=10, lo=4, hi=9, symbreak=True):
+def run(rundir, p, k, f, t=10, lo=4, hi=9, symbreak=True, min_edges=0, cube=None, dom=0):
     A = Audit(p, k, f, lo, hi)
     A.triangles()
     A.degrees()
+    if min_edges:
+        A.atleast_edges(min_edges)
+    if dom >= 2:
+        A.domination(2, 40 - 2 - 27)   # R(3,8) = 28
+    if dom >= 3:
+        A.domination(3, 40 - 3 - 22)   # R(3,7) = 23
+    if cube is not None:
+        A.fix_moving(cube)
     if symbreak:
-        A.lexleader()
+        A.lexleader(fixed_only=(symbreak == "fixed"))
     ncut = A.cuts(os.path.join(rundir, "cutsets.txt"), t)
     cnf = os.path.join(rundir, "audit.cnf")
     with open(cnf, "w") as fh:
@@ -214,4 +287,4 @@ if __name__ == "__main__":
     rundir = sys.argv[1]
     s = json.load(open(os.path.join(rundir, "summary.json")))
     print(json.dumps(run(rundir, s["p"], s["k"], s["f"], s["t"], s["lo"], s["hi"],
-                         s.get("symbreak", True))))
+                         s.get("symbreak", True), s.get("min_edges", 0), s.get("cube_edges"), s.get("dom", 0))))

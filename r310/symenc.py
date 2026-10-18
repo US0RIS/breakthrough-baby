@@ -15,7 +15,7 @@ from itertools import combinations
 
 
 class SymEncoding:
-    def __init__(self, p, k, f, lo=4, hi=9, symbreak=True):
+    def __init__(self, p, k, f, lo=4, hi=9, symbreak=True, min_edges=0, dom=0):
         self.p, self.k, self.f = p, k, f
         self.n = f + k * p
         assert self.n <= 64
@@ -46,8 +46,18 @@ class SymEncoding:
         self.vertex_reps = list(range(f)) + [f + c * p for c in range(k)]
         for v in self.vertex_reps:
             self._degree(v, lo, hi)
+        if dom >= 2:
+            self.add_domination(2, 11)   # R(3,8) = 28
+        if dom >= 3:
+            self.add_domination(3, 15)   # R(3,7) = 23
+        if min_edges:
+            # global edge count >= min_edges; each orbit variable counts its
+            # orbit size. Conditional on the published e(3,10,40) >= 161.
+            lits = [x for x, pairs in self.var_pairs.items() for _ in pairs]
+            out = self._totalizer(lits, cap=min_edges)
+            self.clauses.append([out[min_edges - 1]])
         if symbreak:
-            self.add_symmetry_breaking()
+            self.add_symmetry_breaking(fixed_only=(symbreak == "fixed"))
 
     def var(self, u, v):
         return self.pair_var[(min(u, v), max(u, v))]
@@ -65,7 +75,7 @@ class SymEncoding:
         self.top += 1
         return self.top
 
-    def _totalizer(self, lits):
+    def _totalizer(self, lits, cap=None):
         """Return unary outputs o[0..m-1], o[j] <-> (#true lits >= j+1).
 
         Duplicate literals count with multiplicity, which is exactly the
@@ -74,13 +84,14 @@ class SymEncoding:
         if len(lits) == 1:
             return [lits[0]]
         mid = len(lits) // 2
-        a = self._totalizer(lits[:mid])
-        b = self._totalizer(lits[mid:])
-        out = [self._new() for _ in range(len(a) + len(b))]
+        a = self._totalizer(lits[:mid], cap)
+        b = self._totalizer(lits[mid:], cap)
+        m = len(a) + len(b) if cap is None else min(cap, len(a) + len(b))
+        out = [self._new() for _ in range(m)]
         # a_i & b_j -> out_{i+j}   (i, j counted from 0 meaning ">= 0")
         for i in range(len(a) + 1):
             for j in range(len(b) + 1):
-                if i + j == 0:
+                if i + j == 0 or i + j > m:
                     continue
                 cl = [out[i + j - 1]]
                 if i:
@@ -91,7 +102,7 @@ class SymEncoding:
         # ~a_{i+1} & ~b_{j+1} -> ~out_{i+j+1}
         for i in range(len(a) + 1):
             for j in range(len(b) + 1):
-                if i + j >= len(out):
+                if i + j >= m:
                     continue
                 cl = [-out[i + j]]
                 if i < len(a):
@@ -110,6 +121,40 @@ class SymEncoding:
             self.clauses.append([out[lo - 1]])
         if hi < len(out):
             self.clauses.append([-out[hi]])
+
+    # ---- domination constraints ----------------------------------------
+    #
+    # If S is an independent s-set, V - N[S] has alpha <= 9 - s, hence at
+    # most m(9-s) = R(3, 10-s) - 1 vertices, so |N(S)| >= n - s - m(9-s).
+    # For n = 40: s = 2 gives 11 (R(3,8) = 28), s = 3 gives 15 (R(3,7) = 23).
+    # One constraint per sigma-orbit of s-sets suffices by invariance.
+
+    def add_domination(self, size, need):
+        seen = set()
+        for S in combinations(range(self.n), size):
+            key = min(tuple(sorted(self._orbit_image(S, j))) for j in range(self.p))
+            if key in seen:
+                continue
+            seen.add(key)
+            ys = []
+            for w in range(self.n):
+                if w in S:
+                    continue
+                y = self._new()
+                # y -> w is adjacent to some member of S
+                self.clauses.append([-y] + [self.var(u, w) for u in S])
+                ys.append(y)
+            out = self._totalizer(ys, cap=need)
+            self.clauses.append([self.var(u, v) for u, v in combinations(S, 2)] + [out[need - 1]])
+        self.ndom = len(seen)
+
+    def _orbit_image(self, S, j):
+        out = []
+        for v in S:
+            for _ in range(j):
+                v = self.sigma[v]
+            out.append(v)
+        return out
 
     # ---- symmetry breaking -------------------------------------------
     #
@@ -178,9 +223,20 @@ class SymEncoding:
             out.append(pi)
         return out
 
-    def add_symmetry_breaking(self):
+    def add_symmetry_breaking(self, fixed_only=False):
         for pi in self.normalizer_elements():
+            if fixed_only and any(pi[v] != v for v in range(self.f, self.n)):
+                continue
             self.add_lex_leader(pi)
+
+    def fix_moving_part(self, edges):
+        """Unit clauses fixing G[M] to the given edge set (pairs of moving
+        vertices in full labels); every other moving pair is a non-edge.
+        Use with symbreak="fixed" only (see cubes.py for why)."""
+        on = {self.var(u, v) for u, v in edges}
+        for u, v in combinations(range(self.f, self.n), 2):
+            x = self.var(u, v)
+            self.clauses.append([x] if x in on else [-x])
 
     def cut(self, vertices):
         """Clause: the vertex set is not independent."""

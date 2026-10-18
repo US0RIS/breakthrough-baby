@@ -26,9 +26,13 @@ def write_cnf(path, nvars, clauses):
 
 
 def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbreak=True,
-        solver_name="cadical153", outdir=None, quiet=False, max_seconds=None):
-    enc = SymEncoding(p, k, f, lo, hi, symbreak)
-    tag = f"p{p}_k{k}_f{f}_t{t}_lo{lo}_hi{hi}" + ("" if symbreak else "_nosb")
+        solver_name="cadical153", outdir=None, quiet=False, max_seconds=None, min_edges=0, cube=None, cube_id=None, dom=0):
+    if cube is not None:
+        symbreak = "fixed"
+    enc = SymEncoding(p, k, f, lo, hi, symbreak, min_edges, dom)
+    if cube is not None:
+        enc.fix_moving_part(cube)
+    tag = f"p{p}_k{k}_f{f}_t{t}_lo{lo}_hi{hi}" + ("" if symbreak else "_nosb") + (f"_e{min_edges}" if min_edges else "") + (f"_cube{cube_id}" if cube is not None else "") + (f"_dom{dom}" if dom else "")
     outdir = outdir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "runs", tag)
     os.makedirs(outdir, exist_ok=True)
     cuts, seen, cutsets = [], set(), []
@@ -69,7 +73,7 @@ def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbre
             if not quiet and it % 200 == 0:
                 print(f"[{tag}] iter {it} cuts {len(cuts)} {time.time()-t0:.1f}s", flush=True)
     elapsed = time.time() - t0
-    summary = dict(p=p, k=k, f=f, n=enc.n, t=t, lo=lo, hi=hi, symbreak=symbreak, status=status,
+    summary = dict(p=p, k=k, f=f, n=enc.n, t=t, lo=lo, hi=hi, symbreak=symbreak, min_edges=min_edges, dom=dom, status=status,
                    iterations=it, cuts=len(cuts), edge_vars=enc.nedge_vars,
                    total_vars=enc.top, base_clauses=len(enc.clauses),
                    seconds=round(elapsed, 2), solver=solver_name)
@@ -77,6 +81,8 @@ def run(p, k, f, t=10, lo=4, hi=9, max_iter=10**7, per_model=64, seeds=4, symbre
         summary["graph6"] = to_g6(witness)
         with open(os.path.join(outdir, "witness.g6"), "w") as fh:
             fh.write(summary["graph6"] + "\n")
+    if cube is not None:
+        summary["cube_edges"] = [list(e) for e in cube]
     if status == "UNSAT":
         write_cnf(os.path.join(outdir, "final.cnf"), enc.top, enc.clauses + cuts)
         with open(os.path.join(outdir, "cutsets.txt"), "w") as fh:
@@ -102,6 +108,8 @@ if __name__ == "__main__":
     ap.add_argument("--solver", default="cadical153")
     ap.add_argument("--max-seconds", type=float, default=None)
     ap.add_argument("--no-symbreak", action="store_true")
+    ap.add_argument("--min-edges", type=int, default=0)
+    ap.add_argument("--dom", type=int, default=0)
     a = ap.parse_args()
     run(a.p, a.k, a.f, a.t, a.lo, a.hi, a.max_iter, a.per_model, symbreak=not a.no_symbreak,
-        solver_name=a.solver, max_seconds=a.max_seconds)
+        solver_name=a.solver, max_seconds=a.max_seconds, min_edges=a.min_edges, dom=a.dom)
