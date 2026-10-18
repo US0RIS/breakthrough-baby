@@ -1,0 +1,10 @@
+{
+ "vars": 73880,
+ "clauses": 241346,
+ "cuts": 70589,
+ "cadical_exit": 20,
+ "drat_trim": "VERIFIED",
+ "lrat_trim": "VERIFIED",
+ "audit.drat_bytes": 146342123,
+ "audit.lrat_bytes": 192144033
+}
